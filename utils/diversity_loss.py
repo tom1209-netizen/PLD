@@ -2,139 +2,106 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def calculate_jeffreys_similarity(distributions):
+    """Calculates Jeffrey's Similarity for a list of distributions."""
+    num_distributions = len(distributions)
+    if num_distributions <= 1:
+        # If there's only one prototype for a class, diversity is undefined (or perfect).
+        return torch.tensor(0.0, device=distributions[0].device)
 
-class PrototypeDiversityRegularizer(nn.Module):
-    """Encourages class-wise prototype diversity over spatial regions.
+    total_similarity = 0.0
+    num_pairs = 0
 
-    The implementation mirrors the formulation in the paper: for each
-    class :math:`c`, we approximate the set :math:`\Omega_c` of spatial
-    locations predicted as class :math:`c`, and penalize correlations
-    between the regional activation distributions :math:`v_{c,u}` of the
-    class prototypes.
-    """
+    # Ensure distributions are valid (sum to 1 and are non-negative)
+    distributions = [F.softmax(d, dim=0) for d in distributions]
 
-    def __init__(self,
-                 num_prototypes_per_class: int,
-                 omega_window: int = 7,
-                 omega_min_mass: float = 0.05,
-                 debug: bool = False,
-                 debug_every: int = 200):
+    for i in range(num_distributions):
+        for j in range(i + 1, num_distributions):
+            U = distributions[i]
+            V = distributions[j]
+            
+            # Add a small epsilon to avoid log(0) issues in KL-divergence
+            eps = 1e-10
+            U_safe = U + eps
+            V_safe = V + eps
+            
+            # Kullback-Leibler Divergence
+            dkl_uv = F.kl_div(U_safe.log(), V_safe, reduction='sum')
+            dkl_vu = F.kl_div(V_safe.log(), U_safe, reduction='sum')
+            
+            # Jeffrey's Divergence (symmetrized KL)
+            jeffreys_divergence = dkl_uv + dkl_vu
+            
+            # Jeffrey's Similarity
+            similarity = torch.exp(-jeffreys_divergence)
+            total_similarity += similarity
+            num_pairs += 1
+            
+    return total_similarity / num_pairs if num_pairs > 0 else torch.tensor(0.0, device=distributions[0].device)
+
+
+class PrototypeDiversityLoss(nn.Module):
+    def __init__(self, num_prototypes_per_class):
         super().__init__()
-        if omega_window < 1 or omega_window % 2 == 0:
-            raise ValueError("omega_window must be a positive odd integer")
-        if debug_every < 1:
-            raise ValueError("debug_every must be a positive integer")
         self.num_prototypes_per_class = num_prototypes_per_class
-        self.omega_window = omega_window
-        self.omega_min_mass = omega_min_mass
-        self.debug = debug
-        self.debug_every = debug_every
-        self._call_count = 0
-        self.last_debug = None
 
-    def forward(self, feature_map, prototypes, pseudo_mask):
-        """Compute :math:`\mathcal{L}_{\text{div}}`.
-
+    def forward(self, feature_map, prototypes, gt_mask):
+        """
+        Calculates diversity loss using Cosine Similarity.
+        
         Args:
-            feature_map: Stage-4 feature tensor :math:`F \in \mathbb{R}^{B\times D\times H\times W}`.
-            prototypes:  Learnable prototypes :math:`P \in \mathbb{R}^{(Ck)\times D}` aligned with ``feature_map``.
-            pseudo_mask: Pseudo labels :math:`\Omega` with shape ``[B, H, W]`` (0 background, 1..C foreground).
+            feature_map (torch.Tensor): Output from the encoder [B, D, H, W]
+            prototypes (torch.Tensor): The learnable prototype vectors [Total_Prototypes, D_proto]
+            gt_mask (torch.Tensor): Ground truth segmentation mask [B, H, W]
         """
         B, D, H, W = feature_map.shape
+        device = feature_map.device
+        total_loss = 0.0
 
-        if prototypes.shape[1] != D:
-            raise ValueError(
-                f"Prototype dim {prototypes.shape[1]} != feature dim {D}. "
-                "Pass stage-4 projected prototypes instead."
-            )
+        # Reshape for easier processing
+        feature_map_flat = feature_map.view(B, D, H * W).permute(0, 2, 1) # -> [B, H*W, D]
+        gt_mask_flat = gt_mask.view(B, H * W) # -> [B, H*W]
 
-        total = feature_map.new_tensor(0.0)
-        eps = 1e-8
         num_classes = prototypes.shape[0] // self.num_prototypes_per_class
 
-        # Debug statistics accumulators
-        active_classes = 0
-        active_images = 0
-        sum_valid_locations = 0.0
-        sum_mask_mass = 0.0
-        sum_abs_corr = 0.0
-        max_abs_corr = 0.0
-        sum_loss_values = 0.0
-
-        for b in range(B):
+        for b in range(B): # Iterate over each image in the batch
             class_losses = []
-            Fb = F.normalize(feature_map[b:b + 1], p=2, dim=1)
-            omega_b = pseudo_mask[b]
+            for c in range(num_classes): # Iterate over each class present in the image
+                # Find pixels belonging to the current class 'c' in the ground truth
+                class_pixel_indices = (gt_mask_flat[b] == c).nonzero(as_tuple=True)[0]
+                
+                if len(class_pixel_indices) == 0:
+                    continue # Skip if this class is not in the ground truth for this image
 
-            for c in range(num_classes):
-                omega_c = (omega_b == (c + 1)).float().view(1, 1, H, W)
-                if omega_c.sum() < 1:
-                    continue
+                class_pixel_features = feature_map_flat[b, class_pixel_indices] # -> [Num_Pixels_c, D]
 
-                start = c * self.num_prototypes_per_class
-                end = (c + 1) * self.num_prototypes_per_class
-                Pc = F.normalize(prototypes[start:end], p=2, dim=1)
-                K = Pc.shape[0]
-                if K < 2:
-                    continue
+                # Get all prototypes for this class
+                start_idx = c * self.num_prototypes_per_class
+                end_idx = (c + 1) * self.num_prototypes_per_class
+                class_prototypes = prototypes[start_idx:end_idx] # -> [Num_Proto_c, D_proto]
+                
+                # Normalize features and prototypes for cosine similarity calculation
+                class_pixel_features_norm = F.normalize(class_pixel_features, p=2, dim=1)
+                class_prototypes_norm = F.normalize(class_prototypes, p=2, dim=1)
 
-                weight = Pc.view(K, D, 1, 1)
-                sim = F.conv2d(Fb, weight)
+                # Calculate v(Z, p) for each prototype of this class
+                # v is the distribution of a prototype's activation over the class pixels
+                distributions_v = []
+                for p_k_norm in class_prototypes_norm:
+                    # Calculate cosine similarity from this prototype to all class pixels
+                    # Shape: [Num_Pixels_c]
+                    similarities = torch.matmul(class_pixel_features_norm, p_k_norm)
+                    
+                    # The activation distribution is the softmax over these similarities.
+                    v_distribution = F.softmax(similarities, dim=0)
+                    distributions_v.append(v_distribution)
 
-                window = self.omega_window
-                num = F.avg_pool2d(sim * omega_c, kernel_size=window, stride=1, padding=window // 2)
-                den = F.avg_pool2d(omega_c, kernel_size=window, stride=1, padding=window // 2)
-                region_sim = num / (den + eps)
+                # Calculate Jeffrey's Similarity for this class's prototypes 
+                lj_c = calculate_jeffreys_similarity(distributions_v)
+                class_losses.append(lj_c)
 
-                den_flat = den.view(-1)
-                valid = den_flat > self.omega_min_mass
-                valid_count = int(valid.sum().item())
-                if valid_count < 2:
-                    continue
+            if len(class_losses) > 0:
+                # Average the similarity loss across all classes for this image
+                total_loss += torch.mean(torch.stack(class_losses))
 
-                a = region_sim.view(K, -1).t()
-                a = a[valid]
-                a = a - a.mean(dim=0, keepdim=True)
-                a = a / (a.norm(dim=0, keepdim=True) + eps)
-
-                gram = (a.t() @ a) / a.shape[0]
-                off_diag = gram - torch.diag_embed(gram.diagonal())
-                denom = K * (K - 1)
-                loss_c = off_diag.pow(2).sum() / denom
-                class_losses.append(loss_c)
-
-                # Debug stats (detach to avoid gradient tracking)
-                active_classes += 1
-                sum_valid_locations += valid_count
-                mask_mass = float(den_flat[valid].mean().item()) if valid_count > 0 else 0.0
-                sum_mask_mass += mask_mass
-                abs_corr_mean = float(off_diag.abs().sum().detach().item() / denom)
-                sum_abs_corr += abs_corr_mean
-                max_abs_corr = max(max_abs_corr, float(off_diag.abs().max().detach().item()))
-                sum_loss_values += float(loss_c.detach().item())
-
-            if class_losses:
-                total = total + torch.stack(class_losses).mean()
-                active_images += 1
-
-        loss = total / B
-
-        # Store debug snapshot and optionally print
-        denom_classes = max(active_classes, 1)
-        debug_info = {
-            "active_images": active_images,
-            "active_classes": active_classes,
-            "avg_valid_locations": sum_valid_locations / denom_classes,
-            "avg_mask_mass": sum_mask_mass / denom_classes,
-            "avg_abs_corr": sum_abs_corr / denom_classes,
-            "max_abs_corr": max_abs_corr,
-            "avg_loss_per_class": sum_loss_values / denom_classes,
-        }
-        self.last_debug = debug_info
-
-        self._call_count += 1
-        if self.debug and self._call_count % self.debug_every == 0:
-            print(f"[PrototypeDiversityRegularizer] step={self._call_count} "
-                  f"info={debug_info}")
-
-        return loss
+        return total_loss / B 
