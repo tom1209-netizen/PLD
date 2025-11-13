@@ -1,6 +1,6 @@
-# PLD: Learnable Prototypes with Diversity Regularization for Weakly Supervised Histopathology Segmentation
+# LPD: Learnable Prototypes with Diversity Regularization for Weakly Supervised Histopathology Segmentation
 
-**Official PyTorch implementation of paper PLD**
+**Official PyTorch implementation of paper LPD**
 
 > **Cluster-Free Learnable Prototypes with Diversity Regularization for One-Stage Weakly Supervised Semantic Segmentation in Histopathology**
 
@@ -8,36 +8,36 @@ Hopefully
 [📄 Paper]([Link to Paper PDF/arXiv])
 [🌐 Project Page]([Link to Project Page/Website])
 
------
+---
 
 ## Highlights
-  - **State-of-the-Art (SOTA)** performance on the BCSS-WSSS benchmark.
-  - **One-Stage, Cluster-Free Training**: Eliminates the costly, decoupled, two-stage training required by previous prototype-based methods (e.g., PBIP).
-  - **Diversity Regularization**: Introduces a novel loss based on Jeffrey's divergence to explicitly encourage intra-class prototypes to capture distinct morphological patterns, effectively addressing **intra-class heterogeneity**.
-  - **Histopathological Focus**: Specialized, high-accuracy WSSS for critical medical image analysis.
+
+- **State-of-the-Art (SOTA)** performance on the BCSS-WSSS benchmark.
+- **One-Stage, Cluster-Free Training**: Eliminates the costly, decoupled, two-stage training required by previous prototype-based methods (e.g., PBIP).
+- **Diversity Regularization**: Introduces a novel loss based on Jeffrey's divergence to explicitly encourage intra-class prototypes to capture distinct morphological patterns, effectively addressing **intra-class heterogeneity**.
+- **Histopathological Focus**: Specialized, high-accuracy WSSS for critical medical image analysis.
 
 ## Abstract
 
-
-## Model Architecture (PLD Model Overview)
+## Model Architecture (LPD Model Overview)
 
 \<div align="center"\>
-  \<img src="figures/overview.png" alt="PLD Model Architecture" width="800"\>
-  \<p\>\<em\>Overview of the PLD architecture. The Prototype Constructor uses **learnable prototypes** and is optimized end-to-end with the **Diversity Regularizer (blue, bottom)**, replacing PBIP's static clustering bank.\</em\>\</p\>
+  \<img src="figures/overview.png" alt="LPD Model Architecture" width="800"\>
+  \<p\>\<em\>Overview of the LPD architecture. The Prototype Constructor uses **learnable prototypes** and is optimized end-to-end with the **Diversity Regularizer (blue, bottom)**, replacing PBIP's static clustering bank.\</em\>\</p\>
 \</div\>
 
 The architecture maintains the spirit of feature alignment (as in PBIP's Mask Refiner) but achieves prototype discovery and mask generation in a single, efficient, unified stage.
 
------
+---
 
 ## Installation
 
 ### Requirements
 
-  - Python **3.9**
-  - PyTorch **1.9+** (or latest stable version)
-  - CUDA **11.0+**
-  - Recommended: A machine with **$\ge$24GB GPU memory** for training.
+- Python **3.9**
+- PyTorch **1.9+** (or latest stable version)
+- CUDA **11.0+**
+- Recommended: A machine with **$\ge$24GB GPU memory** for training.
 
 ### Environment Setup
 
@@ -45,36 +45,36 @@ The architecture maintains the spirit of feature alignment (as in PBIP's Mask Re
 
 ```bash
 # Create a dedicated Conda environment
-conda create -n pld python=3.8
-conda activate pld
+conda create -n lpd python=3.8
+conda activate lpd
 
 # Clone the repository
-git clone https://github.com/tom1209-netizen/LDP.git
-cd PLD
+git clone https://github.com/tom1209-netizen/LPD.git
+cd LPD
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
------
+---
 
 ## Dataset: BCSS-WSSS
 
 This project uses the **BCSS (Breast Cancer Semantic Segmentation)** dataset for weakly supervised segmentation (BCSS-WSSS). The method is trained solely with image-level labels.
 
-| Class | Description | Tissue Type |
-|-------|-------------|-------------|
-| **TUM** | Tumor | Epithelial |
-| **STR** | Stroma | Connective |
-| **LYM** | Lymphocyte | Inflammatory |
-| **NEC** | Necrosis | Dying Tissue |
-| **BACK** | Background | N/A |
+| Class    | Description | Tissue Type  |
+| -------- | ----------- | ------------ |
+| **TUM**  | Tumor       | Epithelial   |
+| **STR**  | Stroma      | Connective   |
+| **LYM**  | Lymphocyte  | Inflammatory |
+| **NEC**  | Necrosis    | Dying Tissue |
+| **BACK** | Background  | N/A          |
 
 ### Data Preparation and Structure
 
 Please organize the dataset structure as follows:
 
-```
+```[]
 data/
 ├── BCSS-WSSS/
 │   ├── train/
@@ -87,16 +87,16 @@ data/
 │       └── mask/  # Ground truth masks (for evaluation only)
 ```
 
------
+---
 
 ## Quick Start (One-Stage Training)
 
-PLD is trained end-to-end using a single command.
+LDP is trained end-to-end using a single command.
 
 ### 1\. Download Pre-trained Weights
 
-  - Download the pre-trained SegFormer MiT-B1 encoder weights [here]([SegFormer Download Link]).
-  - Place the weight file into the `./pretrained_models/` directory.
+- Download the pre-trained SegFormer MiT-B1 encoder weights [here]([SegFormer Download Link]).
+- Place the weight file into the `./pretrained_models/` directory.
 
 ### 2\. Training
 
@@ -114,10 +114,10 @@ To evaluate a trained model checkpoint on the test set:
 
 ```bash
 # Evaluate the best checkpoint
-python visualization_utils/test_and_visualize.py --checkpoint ./work_dirs/bcss/pld/latest.pth --config ./work_dirs/bcss/pld/config.yaml
+python visualization_utils/test_and_visualize.py --checkpoint ./work_dirs/bcss/lpd/latest.pth --config ./work_dirs/bcss/lpd/config.yaml
 ```
 
------
+---
 
 ## License and Citation
 
@@ -125,6 +125,7 @@ This project is licensed under the MIT License - see the [LICENSE](https://www.g
 
 If you find this work useful, please consider citing:
 Hopefully
+
 ```bibtex
 @inproceedings{[Your Paper ID],
   title={Cluster-Free Learnable Prototypes with Diversity Regularization for One-Stage Weakly Supervised Semantic Segmentation in Histopathology},

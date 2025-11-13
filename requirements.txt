@@ -1,4 +1,4 @@
-# LDP Project Requirements
+# LPD Project Requirements
 
 # Deep Learning Framework
 torch==2.1.2
